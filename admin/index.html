@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>NIGHT BODY 管理画面</title>
+<!--
+  オーナー専用の管理画面（2026-10-04）
+  - ログイン：オーナーのメールに届くリンクでだけ入れる（Supabase Auth。新規登録はオフ）
+  - 読めるデータは、データベース側の鍵（RLS：public.is_owner()）でオーナーだけに限定。この画面は「見るだけ」
+  - 下の sb_publishable_raKmrmtjS45XR3kDaCOe7w_uQJ5tuLp は、公開してよい種類の鍵（publishable key）。scripts/build_admin.ts で差し込む
+-->
+<style>
+  :root { --bg:#faf7f9; --card:#fff; --ink:#2b2230; --sub:#7a6c80; --line:#ece4ee; --pink:#d9467f; --warn:#c0392b; --ok:#2e8b57; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.6 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.2rem; margin: 8px 0 16px; }
+  h2 { font-size: 1rem; margin: 24px 0 8px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .kpis { display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:10px; }
+  .kpi .v { font-size:1.5rem; font-weight:700; }
+  .kpi .l { font-size:.8rem; color:var(--sub); }
+  .tablewrap { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:.88rem; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--sub); font-weight:600; }
+  tr.click { cursor:pointer; } tr.click:hover { background:#fbf0f5; }
+  td.msg { white-space:normal; min-width:200px; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:99px; font-size:.75rem; background:#f1e7f3; }
+  .tag.danger { background:#fde3e3; color:var(--warn); } .tag.good { background:#e2f4ea; color:var(--ok); }
+  button, input { font:inherit; }
+  input[type=email] { width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; margin:8px 0; }
+  button { padding:10px 16px; border:0; border-radius:8px; background:var(--pink); color:#fff; font-weight:700; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--pink); border:1px solid var(--pink); }
+  .row { display:flex; gap:8px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  .sub { color:var(--sub); font-size:.85rem; }
+  svg { max-width:100%; height:auto; display:block; }
+</style>
+</head>
+<body><main>
+  <div class="row"><h1>NIGHT BODY 管理画面</h1><button id="logout" class="ghost" hidden>ログアウト</button></div>
+
+  <section id="login" class="card" hidden>
+    <p>オーナー専用です。メールに届くリンクからログインしてください。</p>
+    <input id="email" type="email" value="sakura.gym.personal@gmail.com" autocomplete="email">
+    <button id="send">ログイン用のリンクを送る</button>
+    <p id="loginmsg" class="sub"></p>
+  </section>
+
+  <section id="app" hidden>
+    <div id="kpis" class="kpis"></div>
+    <h2>通知の履歴（新しい順・30件）</h2>
+    <div class="card tablewrap"><table id="alerts"></table></div>
+    <h2>会員さん</h2>
+    <div class="card tablewrap"><table id="members"></table></div>
+    <div id="detail" hidden>
+      <h2 id="detailTitle"></h2>
+      <div class="card" id="detailBody"></div>
+    </div>
+    <p class="sub">データは見るだけです。変更はClaudeに頼んでください。</p>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
+<script>
+const sb = supabase.createClient("https://vbmfvcsljmwlnpohjpfl.supabase.co", "__PUBLISHABLE_KEY__");
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const yen = (n) => Math.round(n).toLocaleString("ja-JP") + "円";
+const md = (d) => d ? `${Number(d.slice(5,7))}/${Number(d.slice(8,10))}` : "—";
+const CATEGORY = { self_harm:["死にたい等","danger"], eating_disorder:["摂食障害の疑い","danger"], edema:["注意が必要なむくみ","danger"],
+  medical:["妊娠・持病・服薬","danger"], menstrual:["生理の異常","danger"], plateau:["体重の停滞",""], feedback:["感想","good"], error:["エラー",""] };
+const STATUS = { trialing:["お試し中",""], active:["有料","good"], past_due:["支払い失敗","danger"], unpaid:["未払い","danger"], canceled:["解約済み",""] };
+const DRINK = { "none":"なし", "1-2":"1〜2杯", "3-5":"3〜5杯", "6+":"6杯以上" };
+const SLEEP = { "<4":"4h未満", "4-6":"4〜6h", "6-8":"6〜8h", "8+":"8h以上" };
+
+let members = [];
+
+async function boot() {
+  const { data: { session } } = await sb.auth.getSession();
+  $("login").hidden = !!session; $("app").hidden = !session; $("logout").hidden = !session;
+  if (session) await load();
+}
+
+$("send").onclick = async () => {
+  $("loginmsg").textContent = "送信中…";
+  const { error } = await sb.auth.signInWithOtp({
+    email: $("email").value.trim(),
+    options: { shouldCreateUser: false, emailRedirectTo: location.origin + location.pathname },
+  });
+  $("loginmsg").textContent = error ? "送れませんでした：" + error.message : "メールを送りました。届いたリンクを、このスマホ・パソコンで開いてください。";
+};
+$("logout").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+sb.auth.onAuthStateChange((event) => { if (event === "SIGNED_IN") boot(); });
+
+async function load() {
+  const [m, a, u, r] = await Promise.all([
+    sb.from("members").select("*").order("created_at", { ascending: false }),
+    sb.from("alerts").select("*").order("created_at", { ascending: false }).limit(30),
+    sb.from("ai_usage").select("cost_usd, created_at").gte("created_at", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()),
+    sb.from("referrals").select("id, created_at"),
+  ]);
+  if (m.error) { $("app").innerHTML = `<div class="card">読み込めませんでした（${esc(m.error.message)}）。オーナーのメールでログインしているか確認してください。</div>`; return; }
+  members = m.data;
+  const { data: logs } = await sb.from("daily_logs").select("line_user_id, log_date").order("log_date", { ascending: false }).limit(5000);
+  const lastLog = {}; for (const l of logs ?? []) lastLog[l.line_user_id] ??= l.log_date;
+
+  // 数字
+  const paying = members.filter((x) => !x.is_free);
+  const cnt = (f) => paying.filter(f).length;
+  const weekAgo = Date.now() - 7 * 864e5;
+  const aiYen = (u.data ?? []).reduce((s, x) => s + Number(x.cost_usd), 0) * 150;
+  const usable = members.filter((x) => x.is_free || x.subscription_status === "trialing" || x.subscription_status === "active").length;
+  const kpi = (v, l) => `<div class="card kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+  $("kpis").innerHTML = [
+    kpi(cnt((x) => x.subscription_status === "active"), "有料会員"),
+    kpi(cnt((x) => x.subscription_status === "trialing"), "お試し中"),
+    kpi(yen(cnt((x) => x.subscription_status === "active") * 2980), "月の売上の目安"),
+    kpi(members.filter((x) => new Date(x.created_at).getTime() >= weekAgo).length, "この1週間の新しい人"),
+    kpi(cnt((x) => x.subscription_status === "past_due" || x.subscription_status === "unpaid"), "支払い失敗"),
+    kpi(cnt((x) => x.subscription_status === "canceled"), "解約済み"),
+    kpi(yen(aiYen), "今月のAI費用"),
+    kpi(usable ? yen(aiYen / usable) : "—", "AI費用（1人あたり・今月）"),
+    kpi((r.data ?? []).length, "紹介で有料になった人（累計）"),
+    kpi(members.filter((x) => x.is_free).length, "無料（テスター）"),
+  ].join("");
+
+  // 通知
+  const nameOf = (id) => { const x = members.find((y) => y.line_user_id === id); return x?.display_name || (id ? "ID末尾 " + id.slice(-6) : "—"); };
+  $("alerts").innerHTML = "<tr><th>日時</th><th>種類</th><th>会員</th><th>内容</th></tr>" + (a.data ?? []).map((x) => {
+    const [label, cls] = CATEGORY[x.category] ?? [x.category, ""];
+    return `<tr><td>${esc(new Date(x.created_at).toLocaleString("ja-JP", { month:"numeric", day:"numeric", hour:"2-digit", minute:"2-digit" }))}</td>
+      <td><span class="tag ${cls}">${esc(label)}</span></td><td>${esc(nameOf(x.line_user_id))}</td><td class="msg">${esc(x.message)}</td></tr>`;
+  }).join("");
+
+  // 会員
+  $("members").innerHTML = "<tr><th>名前</th><th>始めた日</th><th>状態</th><th>目標</th><th>最後の記録</th><th>メモ</th></tr>" + members.map((x) => {
+    const [label, cls] = x.is_free ? ["無料", ""] : (STATUS[x.subscription_status] ?? [x.onboarding_step === "done" ? "未契約" : "設定中", ""]);
+    const notes = [x.has_medical_flag ? "持病・服薬・妊娠" : "", x.on_pill ? "ピル" : "", x.cancel_at_period_end ? "解約予約" : "", x.event_date ? `イベント ${md(x.event_date)}` : ""].filter(Boolean).join("・");
+    return `<tr class="click" data-id="${esc(x.line_user_id)}"><td>${esc(x.display_name || "（名前なし）")}<div class="sub">ID末尾 ${esc(x.line_user_id.slice(-6))}</div></td>
+      <td>${md(x.created_at.slice(0,10))}</td><td><span class="tag ${cls}">${esc(label)}</span></td>
+      <td>${x.target_kcal ? x.target_kcal + "kcal" : "—"}</td><td>${md(lastLog[x.line_user_id])}</td><td>${esc(notes)}</td></tr>`;
+  }).join("");
+  document.querySelectorAll("#members tr.click").forEach((tr) => tr.onclick = () => showDetail(tr.dataset.id));
+}
+
+async function showDetail(id) {
+  const x = members.find((y) => y.line_user_id === id);
+  const since = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
+  const [{ data: logs }, { data: periods }] = await Promise.all([
+    sb.from("daily_logs").select("*").eq("line_user_id", id).gte("log_date", since).order("log_date"),
+    sb.from("period_logs").select("start_date").eq("line_user_id", id).order("start_date", { ascending: false }).limit(6),
+  ]);
+  const w = (logs ?? []).filter((l) => l.weight_kg !== null).map((l) => ({ d: l.log_date, v: Number(l.weight_kg) }));
+  let chart = '<p class="sub">体重の記録はまだありません。</p>';
+  if (w.length >= 2) {
+    const W = 640, H = 200, P = 34;
+    const lo = Math.min(...w.map((p) => p.v)) - 0.5, hi = Math.max(...w.map((p) => p.v)) + 0.5;
+    const t0 = new Date(w[0].d).getTime(), t1 = new Date(w.at(-1).d).getTime() || t0 + 1;
+    const X = (d) => P + (new Date(d).getTime() - t0) / Math.max(1, t1 - t0) * (W - P * 2);
+    const Y = (v) => H - P + 10 - (v - lo) / (hi - lo) * (H - P * 1.5);
+    const path = w.map((p, i) => `${i ? "L" : "M"}${X(p.d).toFixed(1)},${Y(p.v).toFixed(1)}`).join(" ");
+    chart = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="体重の変化">
+      <text x="4" y="${Y(hi - 0.5) + 4}" font-size="11" fill="#7a6c80">${(hi - 0.5).toFixed(1)}</text>
+      <text x="4" y="${Y(lo + 0.5) + 4}" font-size="11" fill="#7a6c80">${(lo + 0.5).toFixed(1)}</text>
+      <path d="${path}" fill="none" stroke="#d9467f" stroke-width="2.5"/>
+      ${w.map((p) => `<circle cx="${X(p.d)}" cy="${Y(p.v)}" r="3" fill="#d9467f"><title>${md(p.d)} ${p.v}kg</title></circle>`).join("")}
+      <text x="${P}" y="${H - 4}" font-size="11" fill="#7a6c80">${md(w[0].d)}</text>
+      <text x="${W - P}" y="${H - 4}" font-size="11" fill="#7a6c80" text-anchor="end">${md(w.at(-1).d)}</text></svg>`;
+  }
+  const rows = [...(logs ?? [])].reverse().slice(0, 14).map((l) => `<tr><td>${md(l.log_date)}</td><td>${l.weight_kg ?? "—"}</td><td>${DRINK[l.drink_level] ?? "—"}</td><td>${SLEEP[l.sleep_level] ?? "—"}</td><td>${l.photo_count}</td></tr>`).join("");
+  const info = [
+    ["年齢・身長", x.age ? `${x.age}歳・${x.height_cm}cm` : "—"],
+    ["体重 → 目標", x.weight_kg ? `${x.weight_kg}kg → ${x.target_weight_kg}kg` : "—"],
+    ["目標カロリー", x.target_kcal ? `${x.target_kcal}kcal（P${x.protein_g}・F${x.fat_g}・C${x.carb_g}g）` : "—"],
+    ["出勤・運動・お酒", [x.work_days_per_week != null ? `週${x.work_days_per_week}日` : "", x.exercise_level ?? "", x.favorite_drink ?? ""].filter(Boolean).join("・") || "—"],
+    ["生理の記録", (periods ?? []).map((p) => md(p.start_date)).join("、") || "—"],
+    ["イベント", x.event_date ? `${x.event_name ?? "イベント"} ${md(x.event_date)}` : "—"],
+  ].map(([k, v]) => `<tr><th>${k}</th><td>${esc(v)}</td></tr>`).join("");
+  $("detailTitle").textContent = `${x.display_name || "（名前なし）"}（ID末尾 ${id.slice(-6)}）`;
+  $("detailBody").innerHTML = `<div class="tablewrap"><table>${info}</table></div><h2>体重（直近60日）</h2>${chart}
+    <h2>直近の記録</h2><div class="tablewrap"><table><tr><th>日付</th><th>体重</th><th>お酒</th><th>睡眠</th><th>写真</th></tr>${rows}</table></div>`;
+  $("detail").hidden = false;
+  $("detail").scrollIntoView({ behavior: "smooth" });
+}
+
+boot();
+</script>
+</body>
+</html>
