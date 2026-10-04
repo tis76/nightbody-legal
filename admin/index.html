@@ -72,7 +72,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const yen = (n) => Math.round(n).toLocaleString("ja-JP") + "円";
 const md = (d) => d ? `${Number(d.slice(5,7))}/${Number(d.slice(8,10))}` : "—";
-const CATEGORY = { self_harm:["死にたい等","danger"], eating_disorder:["摂食障害の疑い","danger"], edema:["注意が必要なむくみ","danger"],
+const CATEGORY = { self_harm:["死にたい等","danger"], alcohol_emergency:["急性アルコール中毒の疑い","danger"], alcohol:["お酒の危ないサイン","danger"], eating_disorder:["摂食障害の疑い","danger"], edema:["注意が必要なむくみ","danger"],
   medical:["妊娠・持病・服薬","danger"], menstrual:["生理の異常","danger"], plateau:["体重の停滞",""], feedback:["感想","good"], error:["エラー",""] };
 const STATUS = { trialing:["お試し中",""], active:["有料","good"], past_due:["支払い失敗","danger"], unpaid:["未払い","danger"], canceled:["解約済み",""] };
 const DRINK = { "none":"なし", "1-2":"1〜2杯", "3-5":"3〜5杯", "6+":"6杯以上" };
