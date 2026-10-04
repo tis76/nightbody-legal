@@ -9,7 +9,7 @@
   オーナー専用の管理画面（2026-10-04）
   - ログイン：オーナーのメールに届くリンクでだけ入れる（Supabase Auth。新規登録はオフ）
   - 読めるデータは、データベース側の鍵（RLS：public.is_owner()）でオーナーだけに限定。この画面は「見るだけ」
-  - 下の sb_publishable_raKmrmtjS45XR3kDaCOe7w_uQJ5tuLp は、公開してよい種類の鍵（publishable key）。scripts/build_admin.ts で差し込む
+  - createClient の2つ目の値は、公開してよい種類の鍵（publishable key）。scripts/build_admin.ts で差し込む
 -->
 <style>
   :root { --bg:#faf7f9; --card:#fff; --ink:#2b2230; --sub:#7a6c80; --line:#ece4ee; --pink:#d9467f; --warn:#c0392b; --ok:#2e8b57; }
@@ -65,7 +65,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
 <script>
-const sb = supabase.createClient("https://vbmfvcsljmwlnpohjpfl.supabase.co", "__PUBLISHABLE_KEY__");
+const sb = supabase.createClient("https://vbmfvcsljmwlnpohjpfl.supabase.co", "sb_publishable_raKmrmtjS45XR3kDaCOe7w_uQJ5tuLp");
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const yen = (n) => Math.round(n).toLocaleString("ja-JP") + "円";
