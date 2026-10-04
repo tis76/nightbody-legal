@@ -45,8 +45,14 @@
   <section id="login" class="card" hidden>
     <p>オーナー専用です。メールに届くリンクからログインしてください。</p>
     <input id="email" type="email" value="sakura.gym.personal@gmail.com" autocomplete="email">
-    <button id="send">ログイン用のリンクを送る</button>
+    <button id="send">ログイン用のメールを送る</button>
     <p id="loginmsg" class="sub"></p>
+    <div id="codebox" hidden>
+      <p>メールに書いてある<b>6桁の数字</b>を入力してください。</p>
+      <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"
+        style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;margin:8px 0;font-size:1.3rem;letter-spacing:.2em;">
+      <button id="verify">ログイン</button>
+    </div>
   </section>
 
   <section id="app" hidden>
@@ -90,8 +96,18 @@ $("send").onclick = async () => {
     email: $("email").value.trim(),
     options: { shouldCreateUser: false, emailRedirectTo: location.origin + location.pathname },
   });
-  $("loginmsg").textContent = error ? "送れませんでした：" + error.message : "メールを送りました。届いたリンクを、このスマホ・パソコンで開いてください。";
+  $("loginmsg").textContent = error ? "送れませんでした：" + error.message : "メールを送りました（迷惑メールも確認してください）。";
+  if (!error) $("codebox").hidden = false;
 };
+$("verify").onclick = async () => {
+  $("loginmsg").textContent = "確認中…";
+  const { error } = await sb.auth.verifyOtp({ email: $("email").value.trim(), token: $("code").value.trim(), type: "email" });
+  $("loginmsg").textContent = error ? "ログインできませんでした：" + error.message + "（新しいメールを送って、最新の数字で試してください）" : "";
+  if (!error) boot();
+};
+// メールのリンクから戻ってきて失敗していたら、理由を表示する
+const hashErr = new URLSearchParams(location.hash.slice(1)).get("error_description");
+if (hashErr) $("loginmsg").textContent = "リンクではログインできませんでした（" + hashErr + "）。メールの6桁の数字で入ってください。";
 $("logout").onclick = async () => { await sb.auth.signOut(); location.reload(); };
 sb.auth.onAuthStateChange((event) => { if (event === "SIGNED_IN") boot(); });
 
