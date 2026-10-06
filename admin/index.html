@@ -55,6 +55,8 @@
     <div id="kpis" class="kpis"></div>
     <h2>通知の履歴（新しい順・30件）</h2>
     <div class="card tablewrap"><table id="alerts"></table></div>
+    <h2>コードごとの人数（紹介・営業・お店）</h2>
+    <div class="card tablewrap"><table id="codes"></table></div>
     <h2>会員さん</h2>
     <div class="card tablewrap"><table id="members"></table></div>
     <div id="detail" hidden>
@@ -101,7 +103,7 @@ async function load() {
     sb.from("members").select("*").order("created_at", { ascending: false }),
     sb.from("alerts").select("*").order("created_at", { ascending: false }).limit(30),
     sb.from("ai_usage").select("cost_usd, created_at").gte("created_at", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()),
-    sb.from("referrals").select("id, created_at"),
+    sb.from("referrals").select("id, code, referrer_line_user_id, created_at"),
   ]);
   if (m.error) { $("app").innerHTML = `<div class="card">読み込めませんでした（${esc(m.error.message)}）。オーナーのメールでログインしているか確認してください。</div>`; return; }
   members = m.data;
@@ -128,6 +130,17 @@ async function load() {
     kpi(members.filter((x) => x.is_free).length, "無料（テスター）"),
   ].join("");
 
+  // コードごとの人数：コードを送った人／有料になった人
+  const { data: partners } = await sb.from("partner_codes").select("code, label");
+  const byCode = {};
+  for (const x of members) if (x.referred_code) (byCode[x.referred_code] ??= { joined: 0, paid: 0 }).joined++;
+  for (const x of r.data ?? []) (byCode[x.code] ??= { joined: 0, paid: 0 }).paid++;
+  const labelOf = (c) => partners?.find((p) => p.code === c)?.label ?? (members.find((y) => y.referral_code === c)?.display_name ? `会員 ${members.find((y) => y.referral_code === c).display_name}` : "会員の紹介");
+  const codeRows = Object.entries(byCode).sort((a, b) => b[1].paid - a[1].paid || b[1].joined - a[1].joined);
+  $("codes").innerHTML = "<tr><th>コード</th><th>だれの</th><th>コードを送った人</th><th>有料になった人</th></tr>" +
+    (codeRows.length ? codeRows.map(([c, v]) => `<tr><td>${esc(c)}</td><td>${esc(labelOf(c))}</td><td>${v.joined}人</td><td>${v.paid}人</td></tr>`).join("")
+      : '<tr><td colspan="4" class="sub">まだありません</td></tr>');
+
   // 通知
   const nameOf = (id) => { const x = members.find((y) => y.line_user_id === id); return x?.display_name || (id ? "ID末尾 " + id.slice(-6) : "—"); };
   $("alerts").innerHTML = "<tr><th>日時</th><th>種類</th><th>会員</th><th>内容</th></tr>" + (a.data ?? []).map((x) => {
@@ -139,7 +152,7 @@ async function load() {
   // 会員
   $("members").innerHTML = "<tr><th>名前</th><th>始めた日</th><th>状態</th><th>目標</th><th>最後の記録</th><th>メモ</th></tr>" + members.map((x) => {
     const [label, cls] = x.is_free ? ["無料", ""] : (STATUS[x.subscription_status] ?? [x.onboarding_step === "done" ? "未契約" : "設定中", ""]);
-    const notes = [x.has_medical_flag ? "持病・服薬・妊娠" : "", x.on_pill ? "ピル" : "", x.cancel_at_period_end ? "解約予約" : "", x.event_date ? `イベント ${md(x.event_date)}` : ""].filter(Boolean).join("・");
+    const notes = [x.referred_code ? `コード ${x.referred_code}` : "", x.has_medical_flag ? "持病・服薬・妊娠" : "", x.on_pill ? "ピル" : "", x.cancel_at_period_end ? "解約予約" : "", x.event_date ? `イベント ${md(x.event_date)}` : ""].filter(Boolean).join("・");
     return `<tr class="click" data-id="${esc(x.line_user_id)}"><td>${esc(x.display_name || "（名前なし）")}<div class="sub">ID末尾 ${esc(x.line_user_id.slice(-6))}</div></td>
       <td>${md(x.created_at.slice(0,10))}</td><td><span class="tag ${cls}">${esc(label)}</span></td>
       <td>${x.target_kcal ? x.target_kcal + "kcal" : "—"}</td><td>${md(lastLog[x.line_user_id])}</td><td>${esc(notes)}</td></tr>`;
