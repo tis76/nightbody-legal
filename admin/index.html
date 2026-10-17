@@ -152,7 +152,7 @@ async function load() {
   // 会員
   $("members").innerHTML = "<tr><th>名前</th><th>始めた日</th><th>状態</th><th>目標</th><th>最後の記録</th><th>メモ</th></tr>" + members.map((x) => {
     const [label, cls] = x.is_free ? ["無料", ""] : (STATUS[x.subscription_status] ?? [x.onboarding_step === "done" ? "未契約" : "設定中", ""]);
-    const notes = [x.referred_code ? `コード ${x.referred_code}` : "", x.has_medical_flag ? "持病・服薬・妊娠" : "", x.on_pill ? "ピル" : "", x.cancel_at_period_end ? "解約予約" : "", x.event_date ? `イベント ${md(x.event_date)}` : ""].filter(Boolean).join("・");
+    const notes = [x.lifestyle === "day" ? "☀️昼のお仕事" : "", x.talk_mode && x.talk_mode !== "normal" ? (x.talk_mode === "simple" ? "シンプル" : "おしゃべり") : "", x.referred_code ? `コード ${x.referred_code}` : "", x.has_medical_flag ? "持病・服薬・妊娠" : "", x.on_pill ? "ピル" : "", x.cancel_at_period_end ? "解約予約" : "", x.event_date ? `イベント ${md(x.event_date)}` : ""].filter(Boolean).join("・");
     return `<tr class="click" data-id="${esc(x.line_user_id)}"><td>${esc(x.display_name || "（名前なし）")}<div class="sub">ID末尾 ${esc(x.line_user_id.slice(-6))}</div></td>
       <td>${md(x.created_at.slice(0,10))}</td><td><span class="tag ${cls}">${esc(label)}</span></td>
       <td>${x.target_kcal ? x.target_kcal + "kcal" : "—"}</td><td>${md(lastLog[x.line_user_id])}</td><td>${esc(notes)}</td></tr>`;
